@@ -36,16 +36,17 @@ typedef struct {
 
 typedef struct {
 	char* cmdf;
-	uint8_t byte;
+	uint8_t byte[3];
 } CMD_T;
 
-int to_num(char* txt, uint8_t size) { // TODO Make minuses
+int to_num(char* txt, uint8_t size) {
 	int num = 0;
+	bool neg = (txt[0] == '-');
+	uint8_t i = neg ? 1 : 0;
 	for (uint8_t i = 0; i <= size;i++) {
 		num = num * 10 + (txt[i] - '0');
 	}
-	if (txt[0] == '-') num = num * -1;
-	return num;
+	return neg ? -num : num;
 }
 
 /*
@@ -81,17 +82,21 @@ bool stringscanf(char* text, char* format,...) {
 	%d - Number ex. F6 = -10
 */
 CMD_T x86[] = {
-	{.cmdf = "inc eax", .byte = 0x40},
-	{.cmdf = "cmp eax, %d", .byte = 0x3D},
-	{.cmdf = "jl %d", .byte = 0x7C}
+	{.cmdf = "inc eax", .byte = {0x40,0,0}},
+	{.cmdf = "cmp eax, %d", .byte = {0x3D,0,0}},
+	{.cmdf = "jl %d", .byte = {0x7C,0,0}}
 };
 
 void asm_tobyte(char* asmcode, uint8_t* bytes) {
 	int temp0 = 0;
 	for (uint8_t i = 0; i < sizeof(x86) / sizeof(x86[0]); i++) {
 		if (stringscanf(asmcode,x86[i].cmdf,&temp0)) {
-			bytes[0] = x86[i].byte;
-			bytes[1] = temp0;
+			uint8_t last = 0;
+			for (uint8_t j = 0;x86[i].byte[j] != 0;j++) {
+				byte[j] = x86[i].byte[j];
+				last = j;
+			}
+			byte[++j] = temp0;
 		}
 	}
 }
