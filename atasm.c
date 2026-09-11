@@ -24,14 +24,13 @@ void arg_len(char* txt, uint8_t* i, uint8_t byte) {
 		txt[*i+1] != ','  &&
 		txt[*i+1] != '\n' &&
 		txt[*i+1] != '\r' &&
-		txt[*i+1] != ':'  &&
 		txt[*i+1] != byte
 	) (*i)++;
 }
 
 typedef struct {
 	char text[20];
-	uint32_t adress;
+	uint32_t address;
 } SYMBOL_T;
 
 typedef enum {
@@ -59,7 +58,7 @@ int to_num(char* txt, uint8_t size) {
 
 /*
 	%d - to number
-	%s - to string
+	%s - to tag
 */
 bool stringscanf(char* text, char* format,...) {
 	va_list args;
@@ -75,10 +74,10 @@ bool stringscanf(char* text, char* format,...) {
 				i++;
 			} else if (format[i+1] == 's') {
 				char* rtxt = va_arg(args,char*);
-				uint8_t last = i;
-				arg_len(&text[i],&i,format[i+2]);
+				rtxt = &text[i];
+
+				arg_len(text,&i,format[i+2]);
 				text[i+1] = '\0';
-				rtxt = &text[last];
 				i++;
 			}
 		} else if (text[i] != format[i]) {
@@ -100,49 +99,50 @@ bool stringscanf(char* text, char* format,...) {
 CMD_T x86[] = {
 	{.cmdf = "inc eax", .byte = {0x40,0,0},     .arg_t = ARG_NONE},
 	{.cmdf = "cmp eax, %d", .byte = {0x3D,0,0}, .arg_t = ARG_INT32},
-	{.cmdf = "jl %d", .byte = {0x7C,0,0},       .arg_t = ARG_TAG},
+	{.cmdf = "jl %s", .byte = {0x7C,0,0},       .arg_t = ARG_TAG},
 	{.cmdf = "syscall", .byte = {0x0F,0x05,0},  .arg_t = ARG_NONE}
 };
 
-uint8_t asm_tobyte(char* asmcode, uint8_t* bytes) {
-	int temp0 = 0;
+uint8_t asm_tobyte(char* asmcode, uint8_t* bytes, SYMBOL_T symbols[], int8_t lastsymbol,uint32_t* pc) {
+	char temp[20] = {0};
 	uint8_t ptr = 0;
 	for (uint8_t i = 0; i < sizeof(x86) / sizeof(x86[0]); i++) {
-		if (stringscanf(asmcode,x86[i].cmdf,&temp0)) {
+		if (stringscanf(asmcode,x86[i].cmdf,temp)) {
 
 			for (uint8_t j = 0; x86[i].byte[j] != 0 ;j++) {
 				bytes[ptr++] = x86[i].byte[j];
 			}
 
 			if (x86[i].arg_t == ARG_INT8) {
-				bytes[ptr++] = (uint8_t)(temp0 & 0xFF);
+				bytes[ptr++] = (uint8_t)(temp[0] & 0xFF);
 			}
 			else if (x86[i].arg_t == ARG_INT32) {
-				bytes[ptr++] = (uint8_t)(temp0 & 0xFF);
-				bytes[ptr++] = (uint8_t)((temp0 >> 8) & 0xFF);
-				bytes[ptr++] = (uint8_t)((temp0 >> 16) & 0xFF);
-				bytes[ptr++] = (uint8_t)((temp0 >> 24) & 0xFF);
+				bytes[ptr++] = (uint8_t)(temp[0] & 0xFF);
+				bytes[ptr++] = (uint8_t)((temp[1] >> 8) & 0xFF);
+				bytes[ptr++] = (uint8_t)((temp[2] >> 16) & 0xFF);
+				bytes[ptr++] = (uint8_t)((temp[3] >> 24) & 0xFF);
+			} else if (x86[i].arg_t == ARG_TAG) {
+				printf("AAA: %s\n\r",temp);
+				for (;lastsymbol >= 0;lastsymbol--) {
+					if (strcmp(symbols[lastsymbol].text,temp) == 0) {
+						bytes[ptr++] = symbols[lastsymbol].address - *pc;
+					}
+				}
 			}
 
-			return ptr;
+			*pc += ptr;
 		}
 	}
-	return ptr;
 }
 
-void asm_psymbol(char* buffer,SYMBOL_T symbols[]) {
-	uint8_t symbol = 0;
+void asm_psymbol(char* buffer,SYMBOL_T symbols[],uint8_t* symbol) {
 	uint8_t i = 0;
-	for (;buffer[i] != '\0';) {
-		skip_chars(buffer,&i);
-		char* ptr = &buffer[i];
-		arg_len(buffer,&i,0x00);
-		if (buffer[i+1] == ':') {
-			buffer[i+1] = '\0';
-			strcpy(symbols[symbol++].text,ptr);
-		}
-		if (buffer[i+1] == '\0') break;
-		buffer[++i] = '\0';
+	skip_chars(buffer,&i);
+	char* ptr = &buffer[i];
+	arg_len(buffer,&i,':');
+	if (buffer[i+1] == ':') {
+		buffer[i+1] = '\0';
+		strcpy(symbols[(*symbol)++].text,ptr);
 	}
 }
 
@@ -150,12 +150,13 @@ void asm_compile(FILE* file,FILE* bin) {
 	char buffer[128] = {0};
 
 	SYMBOL_T symbols[50] = {0}; // For "label:"
+	uint8_t lastsymbol = 0;
 
 	uint32_t pc = 0;
 
 	// Symbol parser
 	while (fgets(buffer,sizeof(buffer),file) != NULL) {
-		asm_psymbol(&buffer[0],symbols);
+		asm_psymbol(&buffer[0],symbols,&lastsymbol);
 	}
 
 	fseek(file,0,SEEK_SET);
@@ -163,8 +164,8 @@ void asm_compile(FILE* file,FILE* bin) {
 	uint8_t error = 1; // 0 if error
 
 	while (fgets(buffer,sizeof(buffer),file) != NULL) {
-		uint8_t byte[20] = {0};
-		uint8_t b_c = asm_tobyte(buffer,byte);
+		char byte[20] = {0};
+		uint8_t b_c = asm_tobyte(buffer,byte,symbols,lastsymbol,&pc);
 		error = (b_c != 0);
 		pc += b_c;
 		fwrite(byte,b_c,1,bin);
@@ -172,7 +173,8 @@ void asm_compile(FILE* file,FILE* bin) {
 	if (!error) {
 		printf("Error");
 	}
-	printf("%u",pc);
+	printf("%u\n\r",pc);
+	printf("%u\n\r",symbols[0].address);
 }
 
 int main(int argc,char* argv[]) {
