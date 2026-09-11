@@ -34,9 +34,17 @@ typedef struct {
 	uint32_t adress;
 } SYMBOL_T;
 
+typedef enum {
+	ARG_NONE,
+	ARG_INT32,
+	ARG_INT8,
+	ARG_TAG
+} ARGS_T;
+
 typedef struct {
 	char* cmdf;
 	uint8_t byte[3];
+	ARGS_T arg_t;
 } CMD_T;
 
 int to_num(char* txt, uint8_t size) {
@@ -51,6 +59,7 @@ int to_num(char* txt, uint8_t size) {
 
 /*
 	%d - to number
+	%s - to string
 */
 bool stringscanf(char* text, char* format,...) {
 	va_list args;
@@ -63,6 +72,13 @@ bool stringscanf(char* text, char* format,...) {
 				uint8_t last = i;
 				arg_len(&text[i],&i,format[i+2]);
 				*num = to_num(&text[last],i-last);
+				i++;
+			} else if (format[i+1] == 's') {
+				char* rtxt = va_arg(args,char*);
+				uint8_t last = i;
+				arg_len(&text[i],&i,format[i+2]);
+				text[i+1] = '\0';
+				rtxt = &text[last];
 				i++;
 			}
 		} else if (text[i] != format[i]) {
@@ -82,26 +98,39 @@ bool stringscanf(char* text, char* format,...) {
 	%d - Number ex. F6 = -10
 */
 CMD_T x86[] = {
-	{.cmdf = "inc eax", .byte = {0x40,0,0}},
-	{.cmdf = "cmp eax, %d", .byte = {0x3D,0,0}},
-	{.cmdf = "jl %d", .byte = {0x7C,0,0}}
+	{.cmdf = "inc eax", .byte = {0x40,0,0},     .arg_t = ARG_NONE},
+	{.cmdf = "cmp eax, %d", .byte = {0x3D,0,0}, .arg_t = ARG_INT32},
+	{.cmdf = "jl %d", .byte = {0x7C,0,0},       .arg_t = ARG_TAG},
+	{.cmdf = "syscall", .byte = {0x0F,0x05,0},  .arg_t = ARG_NONE}
 };
 
-void asm_tobyte(char* asmcode, uint8_t* bytes) {
+uint8_t asm_tobyte(char* asmcode, uint8_t* bytes) {
 	int temp0 = 0;
+	uint8_t ptr = 0;
 	for (uint8_t i = 0; i < sizeof(x86) / sizeof(x86[0]); i++) {
 		if (stringscanf(asmcode,x86[i].cmdf,&temp0)) {
-			uint8_t last = 0;
-			for (uint8_t j = 0;x86[i].byte[j] != 0;j++) {
-				byte[j] = x86[i].byte[j];
-				last = j;
+
+			for (uint8_t j = 0; x86[i].byte[j] != 0 ;j++) {
+				bytes[ptr++] = x86[i].byte[j];
 			}
-			byte[++j] = temp0;
+
+			if (x86[i].arg_t == ARG_INT8) {
+				bytes[ptr++] = (uint8_t)(temp0 & 0xFF);
+			}
+			else if (x86[i].arg_t == ARG_INT32) {
+				bytes[ptr++] = (uint8_t)(temp0 & 0xFF);
+				bytes[ptr++] = (uint8_t)((temp0 >> 8) & 0xFF);
+				bytes[ptr++] = (uint8_t)((temp0 >> 16) & 0xFF);
+				bytes[ptr++] = (uint8_t)((temp0 >> 24) & 0xFF);
+			}
+
+			return ptr;
 		}
 	}
+	return ptr;
 }
 
-void asm_symbol(char* buffer,SYMBOL_T symbols[]) {
+void asm_psymbol(char* buffer,SYMBOL_T symbols[]) {
 	uint8_t symbol = 0;
 	uint8_t i = 0;
 	for (;buffer[i] != '\0';) {
@@ -126,22 +155,25 @@ void asm_compile(FILE* file,FILE* bin) {
 
 	// Symbol parser
 	while (fgets(buffer,sizeof(buffer),file) != NULL) {
-		asm_symbol(&buffer[0],symbols);
+		asm_psymbol(&buffer[0],symbols);
 	}
 
 	fseek(file,0,SEEK_SET);
 
+	uint8_t error = 1; // 0 if error
+
 	while (fgets(buffer,sizeof(buffer),file) != NULL) {
 		uint8_t byte[20] = {0};
-		asm_tobyte(buffer,byte);
-		printf("%s\n\r",buffer);
-		printf("BYTES: %x\n\r",byte[0]);
-		printf("SIZEOFBYTES: %u\r\n",msize(byte));
-		fwrite(byte,msize(byte),1,bin);
+		uint8_t b_c = asm_tobyte(buffer,byte);
+		error = (b_c != 0);
+		pc += b_c;
+		fwrite(byte,b_c,1,bin);
 	}
-	printf("%s",symbols[0].text);
+	if (!error) {
+		printf("Error");
+	}
+	printf("%u",pc);
 }
-
 
 int main(int argc,char* argv[]) {
 	if (argc < 3) return 1;
