@@ -31,6 +31,7 @@ void skip_chars(char* txt, uint8_t* i) {
 
 void arg_len(char* txt, uint8_t* i, uint8_t byte) {
 	while (
+		txt[*i+1] != '\0' &&
 		txt[*i+1] != ' '  &&
 		txt[*i+1] != ','  &&
 		txt[*i+1] != '\n' &&
@@ -120,7 +121,6 @@ CMD_T x86[] = {
 void asm_setsymbol(char* asmcode,SYMBOL_T symbols[],int8_t lastsymbol,uint32_t* pc) {
 	char temp[20] = {0};
 	uint8_t ptr = 0;
-	printf("setsymbol\n\r");
 	for (uint8_t i = 0; i < sizeof(x86) / sizeof(x86[0]); i++) {
 		if (stringscanf(asmcode,x86[i].cmdf,temp)) {
 
@@ -146,20 +146,19 @@ void asm_setsymbol(char* asmcode,SYMBOL_T symbols[],int8_t lastsymbol,uint32_t* 
 				asmcode[++c] = '\0';
 				for (uint8_t i = 0;i < lastsymbol;i++) {
 					if (strcmp(symbols[i].text,asmcode) == 0) {
-						printf("Finded :%s\n\r",asmcode);
 						symbols[i].address = *pc;
 						break;
 					}
 				}
 			}
-			printf("text: %s,lastsymbol: %d\n\r",asmcode,lastsymbol);
 		}
 	}
 }
 
-uint8_t asm_tobyte(char* asmcode, uint8_t* bytes, SYMBOL_T symbols[], int8_t lastsymbol,uint32_t* pc) {
+int8_t asm_tobyte(char* asmcode, uint8_t* bytes, SYMBOL_T symbols[], int8_t lastsymbol,uint32_t* pc) {
 	char temp[20] = {0};
 	uint8_t ptr = 0;
+	bool found = false;
 	for (uint8_t i = 0; i < sizeof(x86) / sizeof(x86[0]); i++) {
 		if (stringscanf(asmcode,x86[i].cmdf,temp)) {
 
@@ -178,14 +177,23 @@ uint8_t asm_tobyte(char* asmcode, uint8_t* bytes, SYMBOL_T symbols[], int8_t las
 			} else if (x86[i].arg_t == ARG_TAG) {
 				for (;lastsymbol >= 0;lastsymbol--) {
 					if (strcmp(symbols[lastsymbol].text,temp) == 0) {
-						bytes[ptr++] = symbols[lastsymbol].address - *pc;
-						printf("adr %u\n\r",symbols[lastsymbol].address - *pc);
+						bytes[ptr] = symbols[lastsymbol].address - *pc;
+						break;
 					}
 				}
+				ptr++;
 			}
 
 			*pc += ptr;
+			found = true;
 		}
+	}
+	// For label:
+	if (!found) {
+		uint8_t i = 0;
+		skip_chars(asmcode,&i);
+		arg_len(asmcode,&i,':');
+		if (asmcode[i+1] != ':') ptr = -1;
 	}
 	return ptr;
 }
@@ -196,16 +204,18 @@ void asm_psymbol(char* buffer,SYMBOL_T symbols[],uint8_t* symbol) {
 	char* ptr = &buffer[i];
 	arg_len(buffer,&i,':');
 	if (buffer[i+1] == ':') {
-		printf("A\n\r");
 		buffer[i+1] = '\0';
 		uint8_t idx = *symbol;
 		strcpy(symbols[idx].text,ptr);
 		*symbol = idx + 1;
-		printf("TEST\n\r");
 	}
 }
 
-void asm_compile(FILE* file,FILE* bin) {
+typedef struct {
+	bool showbytes;
+} SETTINGS_CMP;
+
+void asm_compile(FILE* file,FILE* bin,SETTINGS_CMP* settings) {
 	char buffer[128] = {0};
 
 	SYMBOL_T symbols[50] = {0}; // For "label:"
@@ -218,40 +228,61 @@ void asm_compile(FILE* file,FILE* bin) {
 		asm_psymbol(buffer,symbols,&lastsymbol);
 	}
 
-	printf("S\n\r");
-
 	clearerr(file);
 	fseek(file,0,SEEK_SET);
 
-	printf("1 : %u\n\r",lastsymbol);
-	uint8_t i = 0;
 	while (fgets(buffer,sizeof(buffer),file) != NULL) {
-		printf("Iteration: %u\n\r",i++);
 		asm_setsymbol(buffer,symbols,lastsymbol,&pc);
 	}
-	printf("2\n\r");
 
 	clearerr(file);
 	fseek(file,0,SEEK_SET);
 
 	pc = 0;
-	uint8_t error = 1; // 0 if error
+
+	uint8_t error = 0; // 1 = error
+	uint16_t sizeofbin = 0; // Size of bin
+	uint16_t lineasm = 0;   // For error debug
 
 	while (fgets(buffer,sizeof(buffer),file) != NULL) {
 		char byte[20] = {0};
-		uint8_t b_c = asm_tobyte(buffer,byte,symbols,lastsymbol,&pc);
-		error = (b_c != 0);
-		fwrite(byte,b_c,1,bin);
+		lineasm++;
+		int8_t b_c = asm_tobyte(buffer,byte,symbols,lastsymbol,&pc);
+		/*
+			-1 : Not finded asm cmd
+			0  : Label/Tag ex. output:
+			>0 : Bytes of code
+		*/
+		if (b_c == -1) {
+			error = true;
+			break;
+		} else if (b_c > 0) {
+			fwrite(byte,b_c,1,bin);
+			if (settings->showbytes) {
+				printf("%X %X %X %X %X\n\r",byte[0],byte[1],byte[2],byte[3],byte[4]);
+			}
+			sizeofbin += b_c;
+		}
 	}
-	if (!error) {
-		printf("Error");
+	if (error) {
+		printf("Error at line: %u | Text: [%s]\n\r",lineasm,buffer);
+	} else {
+		printf("Compiled!\n\r");
+		printf("PC: %u\n\r",pc);
+		printf("SIZE: %u\n\r",sizeofbin);
 	}
-	printf("%u\n\r",pc);
-	printf("%u\n\r",symbols[0].address);
 }
 
 int main(int argc,char* argv[]) {
 	if (argc < 3) return 1;
+
+	// Compile settings
+	SETTINGS_CMP settings = {.showbytes = false};
+	if (argc >= 4) { // atasm test bin -bytes
+		if (strcmp(argv[3],"-bytes") == 0) {
+			settings.showbytes = true;
+		}
+	}
 
 	FILE* file = fopen(argv[1],"r");
 	FILE* bin =  fopen(argv[2],"w");
@@ -261,7 +292,7 @@ int main(int argc,char* argv[]) {
 		return 1;
 	}
 
-	asm_compile(file,bin);
+	asm_compile(file,bin,&settings);
 
 	fclose(file);
 	fclose(bin);
