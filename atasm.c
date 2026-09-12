@@ -9,14 +9,28 @@ uint8_t msize(uint8_t* m) {
 	return i;
 }
 
-/*
-	\n \r \t
-*/
-void trim(char* text) {
+// For delete comments in compilation
+void trim_c(char* text,char c) {
 	for (uint8_t i = 0; text[i] != '\0'; i++) {
-		if (text[i] == '\n' || text[i] == '\r' || text[i] == '\t') {
-			
+		if (text[i] == c) {
+			text[i] = '\0';
+			break;
 		}
+	}
+}
+
+/*
+    \n \r ' '
+*/
+void trim_end(char* text) {
+    uint8_t end = 0;
+    while(text[end]) end++;
+	while(
+		text[end] == '\n' ||
+		text[end] == '\r' ||
+		text[end] == ' '
+		) {
+        text[end--] = '\0';
 	}
 }
 
@@ -121,6 +135,8 @@ CMD_T x86[] = {
 void asm_setsymbol(char* asmcode,SYMBOL_T symbols[],int8_t lastsymbol,uint32_t* pc) {
 	char temp[20] = {0};
 	uint8_t ptr = 0;
+    trim_c(asmcode,';');
+	trim_end(asmcode);
 	for (uint8_t i = 0; i < sizeof(x86) / sizeof(x86[0]); i++) {
 		if (stringscanf(asmcode,x86[i].cmdf,temp)) {
 
@@ -140,17 +156,17 @@ void asm_setsymbol(char* asmcode,SYMBOL_T symbols[],int8_t lastsymbol,uint32_t* 
 
 			*pc += ptr;
 		} else {
-			uint8_t c = 0;
-			arg_len(asmcode,&c,':');
-			if (asmcode[c+1] == ':') {
-				asmcode[++c] = '\0';
-				for (uint8_t i = 0;i < lastsymbol;i++) {
-					if (strcmp(symbols[i].text,asmcode) == 0) {
-						symbols[i].address = *pc;
-						break;
-					}
-				}
-			}
+            uint8_t c = 0; // For labels
+            arg_len(text,&c,':');
+	        if (text[c+1] == ':') {
+                text[++c] = '\0';
+		        for (uint8_t i = 0;i < lastsymbol;i++) {
+			        if (strcmp(symbols[i].text,text) == 0) {
+				        symbols[i].address = *pc;
+				        break;
+			        }
+		        }
+	        }
 		}
 	}
 }
@@ -159,6 +175,8 @@ int8_t asm_tobyte(char* asmcode, uint8_t* bytes, SYMBOL_T symbols[], int8_t last
 	char temp[20] = {0};
 	uint8_t ptr = 0;
 	bool found = false;
+    trim_c(asmcode,';');
+	trim_end(asmcode);
 	for (uint8_t i = 0; i < sizeof(x86) / sizeof(x86[0]); i++) {
 		if (stringscanf(asmcode,x86[i].cmdf,temp)) {
 
@@ -193,7 +211,9 @@ int8_t asm_tobyte(char* asmcode, uint8_t* bytes, SYMBOL_T symbols[], int8_t last
 		uint8_t i = 0;
 		skip_chars(asmcode,&i);
 		arg_len(asmcode,&i,':');
-		if (asmcode[i+1] != ':') ptr = -1;
+		if (asmcode[i+1] != ':' || asmcode[0] != '\0') ptr = -1;
+		// Function on start trims ; and
+		// if ; is first, asmcode[0] == '\0'
 	}
 	return ptr;
 }
