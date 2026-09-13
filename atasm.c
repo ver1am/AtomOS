@@ -23,12 +23,13 @@ void trim_c(char* text,char c) {
     \n \r ' '
 */
 void trim_end(char* text) {
-    uint8_t end = 0;
-    while(text[end]) end++;
+	uint8_t end = 0;
+	while(text[end+1]) end++;
 	while(
 		text[end] == '\n' ||
 		text[end] == '\r' ||
-		text[end] == ' '
+		text[end] == ' '  ||
+		text[end] == '\t'
 		) {
         text[end--] = '\0';
 	}
@@ -90,6 +91,7 @@ bool stringscanf(char* text, char* format,...) {
 	va_list args;
 	va_start(args,format);
 
+	trim_end(text);
 	for (uint8_t i = 0;text[i] != '\0';i++) {
 		if (format[i] == '%') {
 			if (format[i+1] == 'd') {
@@ -110,8 +112,6 @@ bool stringscanf(char* text, char* format,...) {
 				rtxt[j] = '\0';
 			}
 		} else if (text[i] != format[i]) {
-			// Probably missed i-s
-			if (text[i] == '\n' || text[i] == '\r') continue;
 			va_end(args);
 			return false;
 		}
@@ -135,8 +135,9 @@ CMD_T x86[] = {
 void asm_setsymbol(char* asmcode,SYMBOL_T symbols[],int8_t lastsymbol,uint32_t* pc) {
 	char temp[20] = {0};
 	uint8_t ptr = 0;
-    trim_c(asmcode,';');
+	trim_c(asmcode,';');
 	trim_end(asmcode);
+	if (asmcode[0] == '\0') return; // For comments NEEDED REWORK
 	for (uint8_t i = 0; i < sizeof(x86) / sizeof(x86[0]); i++) {
 		if (stringscanf(asmcode,x86[i].cmdf,temp)) {
 
@@ -156,18 +157,18 @@ void asm_setsymbol(char* asmcode,SYMBOL_T symbols[],int8_t lastsymbol,uint32_t* 
 
 			*pc += ptr;
 		} else {
-            uint8_t c = 0; // For labels
-            arg_len(text,&c,':');
-	        if (text[c+1] == ':') {
-                text[++c] = '\0';
-		        for (uint8_t i = 0;i < lastsymbol;i++) {
-			        if (strcmp(symbols[i].text,text) == 0) {
-				        symbols[i].address = *pc;
-				        break;
-			        }
+			uint8_t c = 0; // For labels
+			arg_len(asmcode,&c,':');
+			if (asmcode[c+1] == ':') {
+				asmcode[++c] = '\0';
+				for (uint8_t i = 0;i < lastsymbol;i++) {
+					if (strcmp(symbols[i].text,asmcode) == 0) {
+						symbols[i].address = *pc;
+						break;
+			        	}
+				}
 		        }
 	        }
-		}
 	}
 }
 
@@ -175,11 +176,11 @@ int8_t asm_tobyte(char* asmcode, uint8_t* bytes, SYMBOL_T symbols[], int8_t last
 	char temp[20] = {0};
 	uint8_t ptr = 0;
 	bool found = false;
-    trim_c(asmcode,';');
+	trim_c(asmcode,';');
 	trim_end(asmcode);
+	if (asmcode[0] == '\0') goto nfound;
 	for (uint8_t i = 0; i < sizeof(x86) / sizeof(x86[0]); i++) {
 		if (stringscanf(asmcode,x86[i].cmdf,temp)) {
-
 			for (uint8_t j = 0; x86[i].byte[j] != 0 ;j++) {
 				bytes[ptr++] = x86[i].byte[j];
 			}
@@ -201,17 +202,18 @@ int8_t asm_tobyte(char* asmcode, uint8_t* bytes, SYMBOL_T symbols[], int8_t last
 				}
 				ptr++;
 			}
-
 			*pc += ptr;
 			found = true;
 		}
 	}
+
+nfound:
 	// For label:
 	if (!found) {
 		uint8_t i = 0;
 		skip_chars(asmcode,&i);
 		arg_len(asmcode,&i,':');
-		if (asmcode[i+1] != ':' || asmcode[0] != '\0') ptr = -1;
+		if (asmcode[i+1] != ':' && asmcode[0] != '\0') ptr = -1;
 		// Function on start trims ; and
 		// if ; is first, asmcode[0] == '\0'
 	}
@@ -279,7 +281,7 @@ void asm_compile(FILE* file,FILE* bin,SETTINGS_CMP* settings) {
 		} else if (b_c > 0) {
 			fwrite(byte,b_c,1,bin);
 			if (settings->showbytes) {
-				printf("%X %X %X %X %X\n\r",byte[0],byte[1],byte[2],byte[3],byte[4]);
+				printf("Size:%d |  %X %X %X %X %X\n\r",b_c,byte[0],byte[1],byte[2],byte[3],byte[4]);
 			}
 			sizeofbin += b_c;
 		}
