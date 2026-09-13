@@ -62,6 +62,7 @@ typedef struct {
 
 typedef enum {
 	ARG_NONE,
+	ARG_REG,
 	ARG_INT32,
 	ARG_INT8,
 	ARG_TAG
@@ -83,6 +84,23 @@ int to_num(char* txt, uint8_t size) {
 	return neg ? -num : num;
 }
 
+const char hex_chars[] = "0123456789ABCDEF";
+
+uint8_t hexindex(char hex) {
+	uint8_t c = 0;
+	for (; hex_chars[c] != '\0' && hex_chars[c] != hex; c++);
+	return c;
+}
+
+int16_t stepen(int16_t num,uint16_t mon) {
+	if (mon == 0) return 1;
+
+	int16_t rnum = num;
+	while (--mon) rnum = rnum*num;
+
+	return rnum;
+}
+
 /*
 	%d - to number
 	%s - to tag
@@ -97,8 +115,18 @@ bool stringscanf(char* text, char* format,...) {
 			if (format[i+1] == 'd') {
 				int* num = va_arg(args, int*);
 				uint8_t last = i;
-				arg_len(&text[i],&i,format[i+2]);
-				*num = to_num(&text[last],i-last);
+				if (text[i] == '0' && text[i+1] == 'x') {
+					i += 2;
+					last = i;
+					arg_len(text,&i,format[i+2]);
+					uint8_t idx = 0;
+					for (int8_t c = i;last <= c;c--) {
+						*num += hexindex(text[c]) * stepen(16,idx++);
+					}
+				} else {
+					arg_len(&text[i],&i,format[i+2]);
+					*num = to_num(&text[last],i-last);
+				}
 				i++;
 			} else if (format[i+1] == 's') {
 				char* rtxt = va_arg(args,char*);
@@ -110,6 +138,55 @@ bool stringscanf(char* text, char* format,...) {
 					i++;
 				}
 				rtxt[j] = '\0';
+			} else if (format[i+1] == 'r') {
+				uint8_t* rbyte = va_arg(args,uint8_t*);
+				uint8_t first = i;
+				arg_len(text,&i,format[i+2]);
+				text[i+1] = '\0';
+
+				uint8_t byte = 0xB0;
+
+				// 8 bits B0-B7
+				if (i-first == 1) {// If AL CL DL BL AH CH DH BH
+					if (strcmp(&text[first],"al")) {
+						byte += 0;
+					} else if (strcmp(&text[first],"cl")) {
+						byte += 0x01;
+					} else if (strcmp(&text[first],"dl")) {
+						byte += 0x02;
+					} else if (strcmp(&text[first],"bl")) {
+						byte += 0x03;
+					} else if (strcmp(&text[first],"ah")) {
+						byte += 0x04;
+					} else if (strcmp(&text[first],"ch")) {
+						byte += 0x05;
+					} else if (strcmp(&text[first],"dh")) {
+						byte += 0x06;
+					} else if (strcmp(&text[first],"bh")) {
+						byte += 0x07;
+					}
+				} else if (i-first == 2) {
+					byte += 0x08;
+					if (strcmp(&text[first],"eax")) {
+						byte += 0;
+					} else if (strcmp(&text[first],"ecx")) {
+						byte += 0x01;
+					} else if (strcmp(&text[first],"edx")) {
+						byte += 0x02;
+					} else if (strcmp(&text[first],"ebx")) {
+						byte += 0x03;
+					} else if (strcmp(&text[first],"esp")) {
+						byte += 0x04;
+					} else if (strcmp(&text[first],"ebp")) {
+						byte += 0x05;
+					} else if (strcmp(&text[first],"esi")) {
+						byte += 0x06;
+					} else if (strcmp(&text[first],"edi")) {
+						byte += 0x07;
+					}
+				}
+				*rbyte = byte;
+				i += 2;
 			}
 		} else if (text[i] != format[i]) {
 			va_end(args);
@@ -122,24 +199,33 @@ bool stringscanf(char* text, char* format,...) {
 }
 
 /*
-	%r - Registers
-	%d - Number ex. F6 = -10
+	%r - Registers REG
+	%d - Number ex. F6 = -10 00 00 00 00 INT32
+	%s - Tag TAG
 */
 CMD_T x86[] = {
-	{.cmdf = "inc eax", .byte = {0x40,0,0},     .arg_t = ARG_NONE},
-	{.cmdf = "cmp eax, %d", .byte = {0x3D,0,0}, .arg_t = ARG_INT32},
-	{.cmdf = "jl %s", .byte = {0x7C,0,0},       .arg_t = ARG_TAG},
-	{.cmdf = "syscall", .byte = {0x0F,0x05,0},  .arg_t = ARG_NONE}
+	// mov
+	{.cmdf = "mov bl, al",.byte = {0x88,0xC3,0},   .arg_t = ARG_NONE},
+	{.cmdf = "mov ebx, eax",.byte = {0x89,0xC3,0}, .arg_t = ARG_NONE},
+	{.cmdf = "mov bl, al",.byte = {0x88,0xC3,0},   .arg_t = ARG_NONE},
+	{.cmdf = "mov %r, %d",.byte = {0,0,0},        .arg_t = ARG_REG},
+
+	{.cmdf = "inc eax", .byte = {0x40,0,0},       .arg_t = ARG_NONE},
+	{.cmdf = "cmp eax, %d", .byte = {0x3D,0,0},   .arg_t = ARG_INT32},
+	{.cmdf = "jl %s", .byte = {0x7C,0,0},         .arg_t = ARG_TAG},
+	{.cmdf = "syscall", .byte = {0x0F,0x05,0},    .arg_t = ARG_NONE},
+	{.cmdf = "ret", .byte = {0xC3,0,0},           .arg_t = ARG_NONE},
 };
 
 void asm_setsymbol(char* asmcode,SYMBOL_T symbols[],int8_t lastsymbol,uint32_t* pc) {
 	char temp[20] = {0};
+	char temp0[20] = {0};
 	uint8_t ptr = 0;
 	trim_c(asmcode,';');
 	trim_end(asmcode);
 	if (asmcode[0] == '\0') return; // For comments NEEDED REWORK
 	for (uint8_t i = 0; i < sizeof(x86) / sizeof(x86[0]); i++) {
-		if (stringscanf(asmcode,x86[i].cmdf,temp)) {
+		if (stringscanf(asmcode,x86[i].cmdf,temp,temp0)) {
 
 			for (uint8_t j = 0;x86[i].byte[j] != 0;j++) ptr++;
 
@@ -153,6 +239,9 @@ void asm_setsymbol(char* asmcode,SYMBOL_T symbols[],int8_t lastsymbol,uint32_t* 
 				ptr++;
 			} else if (x86[i].arg_t == ARG_TAG) {
 				ptr++;
+			} else if (x86[i].arg_t == ARG_REG) {
+				ptr++;
+				ptr++; // 1 bytes TODO
 			}
 
 			*pc += ptr;
@@ -174,13 +263,14 @@ void asm_setsymbol(char* asmcode,SYMBOL_T symbols[],int8_t lastsymbol,uint32_t* 
 
 int8_t asm_tobyte(char* asmcode, uint8_t* bytes, SYMBOL_T symbols[], int8_t lastsymbol,uint32_t* pc) {
 	char temp[20] = {0};
+	char temp0[20] = {0};
 	uint8_t ptr = 0;
 	bool found = false;
 	trim_c(asmcode,';');
 	trim_end(asmcode);
 	if (asmcode[0] == '\0') goto nfound;
 	for (uint8_t i = 0; i < sizeof(x86) / sizeof(x86[0]); i++) {
-		if (stringscanf(asmcode,x86[i].cmdf,temp)) {
+		if (stringscanf(asmcode,x86[i].cmdf,temp,temp0)) {
 			for (uint8_t j = 0; x86[i].byte[j] != 0 ;j++) {
 				bytes[ptr++] = x86[i].byte[j];
 			}
@@ -201,6 +291,9 @@ int8_t asm_tobyte(char* asmcode, uint8_t* bytes, SYMBOL_T symbols[], int8_t last
 					}
 				}
 				ptr++;
+			} else if (x86[i].arg_t == ARG_REG) {
+				bytes[ptr++] = temp[0];
+				bytes[ptr++] = temp0[0]; // 1 byte TODO
 			}
 			*pc += ptr;
 			found = true;
@@ -267,7 +360,7 @@ void asm_compile(FILE* file,FILE* bin,SETTINGS_CMP* settings) {
 	uint16_t lineasm = 0;   // For error debug
 
 	while (fgets(buffer,sizeof(buffer),file) != NULL) {
-		char byte[20] = {0};
+		uint8_t byte[20] = {0};
 		lineasm++;
 		int8_t b_c = asm_tobyte(buffer,byte,symbols,lastsymbol,&pc);
 		/*
@@ -281,7 +374,7 @@ void asm_compile(FILE* file,FILE* bin,SETTINGS_CMP* settings) {
 		} else if (b_c > 0) {
 			fwrite(byte,b_c,1,bin);
 			if (settings->showbytes) {
-				printf("Size:%d |  %X %X %X %X %X\n\r",b_c,byte[0],byte[1],byte[2],byte[3],byte[4]);
+				printf("Size:%d | %X %X %X %X %X\n\r",b_c,byte[0],byte[1],byte[2],byte[3],byte[4]);
 			}
 			sizeofbin += b_c;
 		}
