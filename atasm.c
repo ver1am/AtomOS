@@ -75,16 +75,18 @@ typedef struct {
 
 typedef enum {
 	ARG_NONE,
-	ARG_REG,
+	ARG_REGB,
+	ARG_REGD,
 	ARG_INT32,
 	ARG_INT8,
-	ARG_TAG
+	ARG_TAG,
 } ARGS_T;
 
 typedef struct {
 	char* cmdf;
 	uint8_t byte[3];
-	ARGS_T arg_t;
+	ARGS_T arg0_t;
+	ARGS_T arg1_t;
 } CMD_T;
 
 int to_num(char* txt, uint8_t size) {
@@ -128,6 +130,7 @@ bool stringscanf(char* text, char* format,...) {
 			if (format[i+1] == 'd') {
 				int* num = va_arg(args, int*);
 				uint8_t last = i;
+				*num = 0;
 				if (text[i] == '0' && text[i+1] == 'x') {
 					i += 2;
 					last = i;
@@ -152,51 +155,46 @@ bool stringscanf(char* text, char* format,...) {
 				}
 				rtxt[j] = '\0';
 			} else if (format[i+1] == 'r') {
-				uint8_t* rbyte = va_arg(args,uint8_t*);
+				char txt[5] = {0};
+
+				uint8_t* rbyte = NULL;
+				uint8_t byte = 0;
+
 				uint8_t first = i;
 				arg_len(text,&i,format[i+2]);
-				text[i+1] = '\0';
 
-				uint8_t byte = 0xB0;
+				uint8_t len = i-first;
 
-				// 8 bits B0-B7
-				if (i-first == 1) {// If AL CL DL BL AH CH DH BH
-					if (strcmp(&text[first],"al")) {
+				for (uint8_t c = 0;c < (i+1)-first;c++) {
+					txt[c] = text[first+c];
+				}
+
+				txt[(i+1)-first] = '\0';
+
+				// 8 bits 0-7
+				if (len == 1 || len == 2) {// If AL CL DL BL AH CH DH BH
+					rbyte = va_arg(args,uint8_t*);
+					byte = *rbyte;
+					if (strcmp(txt,"al") == 0        || strcmp(txt,"eax") == 0) {
 						byte += 0;
-					} else if (strcmp(&text[first],"cl")) {
+					} else if (strcmp(txt,"cl") == 0 || strcmp(txt,"ecx") == 0) {
 						byte += 0x01;
-					} else if (strcmp(&text[first],"dl")) {
+					} else if (strcmp(txt,"dl") == 0 || strcmp(txt,"edx") == 0) {
 						byte += 0x02;
-					} else if (strcmp(&text[first],"bl")) {
+					} else if (strcmp(txt,"bl") == 0 || strcmp(txt,"ebx") == 0) {
 						byte += 0x03;
-					} else if (strcmp(&text[first],"ah")) {
+					} else if (strcmp(txt,"ah") == 0 || strcmp(txt,"esp") == 0) {
 						byte += 0x04;
-					} else if (strcmp(&text[first],"ch")) {
+					} else if (strcmp(txt,"ch") == 0 || strcmp(txt,"ebp") == 0) {
 						byte += 0x05;
-					} else if (strcmp(&text[first],"dh")) {
+					} else if (strcmp(txt,"dh") == 0 || strcmp(txt,"esi") == 0) {
 						byte += 0x06;
-					} else if (strcmp(&text[first],"bh")) {
+					} else if (strcmp(txt,"bh") == 0 || strcmp(txt,"edi") == 0) {
 						byte += 0x07;
 					}
-				} else if (i-first == 2) {
-					byte += 0x08;
-					if (strcmp(&text[first],"eax")) {
-						byte += 0;
-					} else if (strcmp(&text[first],"ecx")) {
-						byte += 0x01;
-					} else if (strcmp(&text[first],"edx")) {
-						byte += 0x02;
-					} else if (strcmp(&text[first],"ebx")) {
-						byte += 0x03;
-					} else if (strcmp(&text[first],"esp")) {
-						byte += 0x04;
-					} else if (strcmp(&text[first],"ebp")) {
-						byte += 0x05;
-					} else if (strcmp(&text[first],"esi")) {
-						byte += 0x06;
-					} else if (strcmp(&text[first],"edi")) {
-						byte += 0x07;
-					}
+				} else {
+					i = first;
+					continue;
 				}
 				*rbyte = byte;
 				i += 2;
@@ -218,16 +216,19 @@ bool stringscanf(char* text, char* format,...) {
 */
 CMD_T x86[] = {
 	// mov
-	{.cmdf = "mov bl, al",.byte = {0x88,0xC3,0},   .arg_t = ARG_NONE},
-	{.cmdf = "mov ebx, eax",.byte = {0x89,0xC3,0}, .arg_t = ARG_NONE},
-	{.cmdf = "mov bl, al",.byte = {0x88,0xC3,0},   .arg_t = ARG_NONE},
-	{.cmdf = "mov %r, %d",.byte = {0,0,0},        .arg_t = ARG_REG},
+	{.cmdf = "mov bl, al",.byte = {0x88,0xC3,0},   .arg0_t = ARG_NONE,.arg1_t = ARG_NONE},
+	{.cmdf = "mov ebx, eax",.byte = {0x89,0xC3,0}, .arg0_t = ARG_NONE,.arg1_t = ARG_NONE},
+	{.cmdf = "mov %r, %d",.byte = {0,0,0},         .arg0_t = ARG_REGB,.arg1_t = ARG_INT8},
 
-	{.cmdf = "inc eax", .byte = {0x40,0,0},       .arg_t = ARG_NONE},
-	{.cmdf = "cmp eax, %d", .byte = {0x3D,0,0},   .arg_t = ARG_INT32},
-	{.cmdf = "jl %s", .byte = {0x7C,0,0},         .arg_t = ARG_TAG},
-	{.cmdf = "syscall", .byte = {0x0F,0x05,0},    .arg_t = ARG_NONE},
-	{.cmdf = "ret", .byte = {0xC3,0,0},           .arg_t = ARG_NONE},
+	// call
+	{.cmdf = "call %r",.byte = {0xFF,0,0},         .arg0_t = ARG_REGD,.arg1_t = ARG_NONE},
+	{.cmdf = "call %d",.byte = {0xE8,0,0},         .arg0_t = ARG_INT32,.arg1_t = ARG_NONE},
+
+	{.cmdf = "inc eax", .byte = {0x40,0,0},        .arg0_t = ARG_NONE,.arg1_t = ARG_NONE},
+	{.cmdf = "cmp eax, %d", .byte = {0x3D,0,0},    .arg0_t = ARG_INT32,.arg1_t = ARG_NONE},
+	{.cmdf = "jl %s", .byte = {0x7C,0,0},          .arg0_t = ARG_TAG,.arg1_t = ARG_NONE},
+	{.cmdf = "syscall", .byte = {0x0F,0x05,0},     .arg0_t = ARG_NONE,.arg1_t = ARG_NONE},
+	{.cmdf = "ret", .byte = {0xC3,0,0},            .arg0_t = ARG_NONE,.arg1_t = ARG_NONE},
 };
 
 void asm_setsymbol(char* asmcode,SYMBOL_T symbols[],int8_t lastsymbol,uint32_t* pc) {
@@ -242,19 +243,19 @@ void asm_setsymbol(char* asmcode,SYMBOL_T symbols[],int8_t lastsymbol,uint32_t* 
 
 			for (uint8_t j = 0;x86[i].byte[j] != 0;j++) ptr++;
 
-			if (x86[i].arg_t == ARG_INT8) {
+			if (x86[i].arg0_t == ARG_INT8) {
 				ptr++;
 			}
-			else if (x86[i].arg_t == ARG_INT32) {
+			else if (x86[i].arg0_t == ARG_INT32) {
 				ptr++;
 				ptr++;
 				ptr++;
 				ptr++;
-			} else if (x86[i].arg_t == ARG_TAG) {
+			} else if (x86[i].arg0_t == ARG_TAG) {
 				ptr++;
-			} else if (x86[i].arg_t == ARG_REG) {
+			} else if (x86[i].arg0_t == ARG_REGB || x86[i].arg0_t == ARG_REGD) {
 				ptr++;
-				ptr++; // 1 bytes TODO
+				if (x86[i].arg1_t == ARG_INT8) ptr++;
 			}
 
 			*pc += ptr;
@@ -283,20 +284,28 @@ int8_t asm_tobyte(char* asmcode, uint8_t* bytes, SYMBOL_T symbols[], int8_t last
 	trim_end(asmcode);
 	if (asmcode[0] == '\0') goto nfound;
 	for (uint8_t i = 0; i < sizeof(x86) / sizeof(x86[0]); i++) {
+		if (x86[i].arg0_t == ARG_REGB) {
+			temp0[0] = 0xB0;
+			temp[0] =  0xB0;
+		}  else if (x86[i].arg0_t == ARG_REGD) {
+			temp0[0] = 0xD0;
+			temp[0] =  0xD0;
+		}
+
 		if (stringscanf(asmcode,x86[i].cmdf,temp,temp0)) {
 			for (uint8_t j = 0; x86[i].byte[j] != 0 ;j++) {
 				bytes[ptr++] = x86[i].byte[j];
 			}
 
-			if (x86[i].arg_t == ARG_INT8) {
+			if (x86[i].arg0_t == ARG_INT8) {
 				bytes[ptr++] = (uint8_t)(temp[0] & 0xFF);
 			}
-			else if (x86[i].arg_t == ARG_INT32) {
+			else if (x86[i].arg0_t == ARG_INT32) {
 				bytes[ptr++] = (uint8_t)(temp[0] & 0xFF);
 				bytes[ptr++] = (uint8_t)((temp[1] >> 8) & 0xFF);
 				bytes[ptr++] = (uint8_t)((temp[2] >> 16) & 0xFF);
 				bytes[ptr++] = (uint8_t)((temp[3] >> 24) & 0xFF);
-			} else if (x86[i].arg_t == ARG_TAG) {
+			} else if (x86[i].arg0_t == ARG_TAG) {
 				for (;lastsymbol >= 0;lastsymbol--) {
 					if (strcmp(symbols[lastsymbol].text,temp) == 0) {
 						bytes[ptr] = symbols[lastsymbol].address - *pc;
@@ -304,9 +313,9 @@ int8_t asm_tobyte(char* asmcode, uint8_t* bytes, SYMBOL_T symbols[], int8_t last
 					}
 				}
 				ptr++;
-			} else if (x86[i].arg_t == ARG_REG) {
+			} else if (x86[i].arg0_t == ARG_REGB || x86[i].arg0_t == ARG_REGD) {
 				bytes[ptr++] = temp[0];
-				bytes[ptr++] = temp0[0]; // 1 byte TODO
+				if (x86[i].arg1_t == ARG_INT8) bytes[ptr++] = temp0[0];
 			}
 			*pc += ptr;
 			found = true;
