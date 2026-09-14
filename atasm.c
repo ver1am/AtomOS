@@ -38,10 +38,23 @@ void trim_end(char* text) {
 void skip_chars(char* txt, uint8_t* i) {
 	while (
 		txt[*i] == ' '  ||
+		txt[*i] == '\t' || // TAB - 0x09
 		txt[*i] == ','  ||
 		txt[*i] == '\n' ||
 		txt[*i] == '\r'
 	) (*i)++;
+}
+
+void skip__chars(char** txt) {
+	uint8_t i = 0;
+	while (
+		(*txt)[i] == ' '  ||
+		(*txt)[i] == '\t' ||
+		(*txt)[i] == ','  ||
+		(*txt)[i] == '\n' ||
+		(*txt)[i] == '\r'
+	) i++;
+	*txt = &(*txt)[i];
 }
 
 void arg_len(char* txt, uint8_t* i, uint8_t byte) {
@@ -332,6 +345,8 @@ typedef struct {
 
 void asm_compile(FILE* file,FILE* bin,SETTINGS_CMP* settings) {
 	char buffer[128] = {0};
+	char* bufferptr = buffer; // Use pointer!!
+	// bufferptr is pointer on char starting without \t ' '
 
 	SYMBOL_T symbols[50] = {0}; // For "label:"
 	int8_t lastsymbol = 0;
@@ -340,7 +355,7 @@ void asm_compile(FILE* file,FILE* bin,SETTINGS_CMP* settings) {
 
 	// Symbol parser
 	while (fgets(buffer,sizeof(buffer),file) != NULL) {
-		asm_psymbol(buffer,symbols,&lastsymbol);
+		asm_psymbol(bufferptr,symbols,&lastsymbol);
 	}
 
 	clearerr(file);
@@ -356,13 +371,13 @@ void asm_compile(FILE* file,FILE* bin,SETTINGS_CMP* settings) {
 	pc = 0;
 
 	uint8_t error = 0; // 1 = error
-	uint16_t sizeofbin = 0; // Size of bin
 	uint16_t lineasm = 0;   // For error debug
 
 	while (fgets(buffer,sizeof(buffer),file) != NULL) {
+		skip__chars(&bufferptr);
 		uint8_t byte[20] = {0};
 		lineasm++;
-		int8_t b_c = asm_tobyte(buffer,byte,symbols,lastsymbol,&pc);
+		int8_t b_c = asm_tobyte(bufferptr,byte,symbols,lastsymbol,&pc);
 		/*
 			-1 : Not finded asm cmd
 			0  : Label/Tag ex. output:
@@ -374,9 +389,12 @@ void asm_compile(FILE* file,FILE* bin,SETTINGS_CMP* settings) {
 		} else if (b_c > 0) {
 			fwrite(byte,b_c,1,bin);
 			if (settings->showbytes) {
-				printf("Size:%d | %X %X %X %X %X\n\r",b_c,byte[0],byte[1],byte[2],byte[3],byte[4]);
+				printf("Line: %u | ",lineasm);
+				for (uint8_t i = 0; i < b_c;i++) {
+					printf("%X ",byte[i]);
+				}
+				printf("| %s |\n\r",bufferptr);
 			}
-			sizeofbin += b_c;
 		}
 	}
 	if (error) {
@@ -384,7 +402,6 @@ void asm_compile(FILE* file,FILE* bin,SETTINGS_CMP* settings) {
 	} else {
 		printf("Compiled!\n\r");
 		printf("PC: %u\n\r",pc);
-		printf("SIZE: %u\n\r",sizeofbin);
 	}
 }
 
