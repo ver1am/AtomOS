@@ -5,6 +5,15 @@
 #include <string.h>
 
 typedef struct {
+	union {
+		int num;
+		char txt[20];
+	};
+	bool text; // True if text | False if number
+	uint8_t bytes[5];
+} SCANR_T;
+
+typedef struct {
         char text[20];
         uint32_t address;
 } SYMBOL_T;
@@ -44,3 +53,4 @@ uint8_t hexindex(char hex);
 int16_t stepen(int16_t num,uint16_t mon);
 int to_num(char* txt, uint8_t size);
 void arg_len(char* txt, uint8_t* i, uint8_t byte);
+uint8_t arg_copy(char* txt,char* newm,uint8_t byte);

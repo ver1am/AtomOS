@@ -5,3 +5,4 @@ inc eax ; Ass
 cmp eax, 0
 call 0xFF
 call eax
+mov eax, 55

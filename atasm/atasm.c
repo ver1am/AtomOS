@@ -57,6 +57,7 @@ void skip__chars(char** txt) {
 	*txt = &(*txt)[i];
 }
 
+// STOPS ON REAL BYTE! NOT \0 \n \r
 void arg_len(char* txt, uint8_t* i, uint8_t byte) {
 	while (
 		txt[*i+1] != '\0' &&
@@ -68,11 +69,26 @@ void arg_len(char* txt, uint8_t* i, uint8_t byte) {
 	) (*i)++;
 }
 
+// Copying text in new m while symbols
+// Returns byte \0 \n \r
+uint8_t arg_copy(char* txt,char* newm,uint8_t byte) {
+	uint8_t i = 0;
+	while (
+		txt[i] != '\0' &&
+		txt[i] != ' '  &&
+		txt[i] != '\n' &&
+		txt[i] != '\r' &&
+		txt[i] != byte &&
+		txt[i] != ','
+	) newm[i++] = txt[i];
+	return i;
+}
+
 int to_num(char* txt, uint8_t size) {
 	int num = 0;
 	bool neg = (txt[0] == '-');
-	uint8_t i = neg ? 1 : 0;
-	for (uint8_t i = 0; i <= size;i++) {
+	uint8_t start = neg ? 1 : 0;
+	for (uint8_t i = start; i < size; i++) {
 		num = num * 10 + (txt[i] - '0');
 	}
 	return neg ? -num : num;
