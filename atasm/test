@@ -1,0 +1,7 @@
+mov al, 0x55
+; Testing
+string:		; Nigga
+inc eax ; Ass
+cmp eax, 0
+call 0xFF
+call eax
