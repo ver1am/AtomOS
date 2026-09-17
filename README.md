@@ -10,7 +10,7 @@
   The heart of the OS for the PC platform.
 
 * **`atomc/`**  
-  A custom system compiler tailored for the AtomOS ecosystem. Designed for absolute fluidity between high-level logic and low-level machine architecture, featuring deep, seamless integration with inline assembly and unrestrictive, highly flexible argument handling. 
+  A custom system compiler tailored for the AtomOS ecosystem.
 
 * **`atomemb/`**  
   The embedded hardware frontier.
