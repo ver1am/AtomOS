@@ -1,16 +1,16 @@
 #include <stdint.h>
 
 #include <stdio.h>
-#include <stdarg.h>
 #include <string.h>
 
-typedef struct {
+typedef struct __SCANR_T {
 	union {
 		int num;
 		char txt[20];
 	};
-	bool text; // True if text | False if number
-	uint8_t bytes[5];
+
+	bool type;
+	struct __SCANR_T* next;
 } SCANR_T;
 
 typedef struct {
@@ -31,7 +31,7 @@ typedef struct {
 
 typedef struct {
 	uint8_t gened;
-	uint8_t error;
+	uint8_t error; /// 0 ok 1 error 2 ok but dont generate
 } GENED_T;
 
 typedef struct {
@@ -49,8 +49,14 @@ extern uint8_t arc_count;
 GENED_T genbytecode(COMP_T* settings); // mode | 0 for gen | 1 for calc size
 
 // For portable
+typedef struct {int32_t num; bool has_num;} UNI_NUM_T;
 uint8_t hexindex(char hex);
 int16_t stepen(int16_t num,uint16_t mon);
-int to_num(char* txt, uint8_t size);
+int texto_num(char* txt, uint8_t size);
+UNI_NUM_T uni_num(char* txt);
 void arg_len(char* txt, uint8_t* i, uint8_t byte);
 uint8_t arg_copy(char* txt,char* newm,uint8_t byte);
+void args_parser(char* text,SCANR_T* curr);
+void trim_end(char* text);
+char* str_char(char* txt, uint8_t byte);
+int8_t atoi(char* txt);

@@ -5,4 +5,5 @@ inc eax ; Ass
 cmp eax, 0
 call 0xFF
 call eax
-mov eax, 55
+MOV EAX , 55
+lea rsi, [0x50*4]
